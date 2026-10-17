@@ -1,0 +1,62 @@
+[
+  {
+    "id": 0,
+    "name": "Acacia",
+    "name_vi": "Cây Keo"
+  },
+  {
+    "id": 1,
+    "name": "Bamboo-shoots",
+    "name_vi": "Măng Tre / Tre"
+  },
+  {
+    "id": 2,
+    "name": "Banana-plant",
+    "name_vi": "Cây Chuối"
+  },
+  {
+    "id": 3,
+    "name": "Banyan-Tree",
+    "name_vi": "Cây Đa"
+  },
+  {
+    "id": 4,
+    "name": "Coconut-tree",
+    "name_vi": "Cây Dừa"
+  },
+  {
+    "id": 5,
+    "name": "Mango-Tree",
+    "name_vi": "Cây Xoài"
+  },
+  {
+    "id": 6,
+    "name": "Neem-Tree",
+    "name_vi": "Cây Sầu Đâu / Neem"
+  },
+  {
+    "id": 7,
+    "name": "Palm-tree",
+    "name_vi": "Cây Cọ"
+  },
+  {
+    "id": 8,
+    "name": "Papaya-Tree",
+    "name_vi": "Cây Đu Đủ"
+  },
+  {
+    "id": 9,
+    "name": "Pine",
+    "name_vi": "Cây Thông"
+  },
+  {
+    "id": 10,
+    "name": "lemon tree",
+    "name_vi": "Cây Chanh"
+  },
+  {
+    "id": 11,
+    "name": "peepal tree",
+    "name_vi": "Cây Bồ Đề"
+  }
+]

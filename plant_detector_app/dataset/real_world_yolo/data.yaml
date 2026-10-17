@@ -1,0 +1,7 @@
+path: D:/plant_detector_app/plant_detector_app/dataset/real_world_yolo
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 12
+names: ['Acacia', 'Bamboo-shoots', 'Banana-plant', 'Banyan-Tree', 'Coconut-tree', 'Mango-Tree', 'Neem-Tree', 'Palm-tree', 'Papaya-Tree', 'Pine', 'lemon tree', 'peepal tree']
