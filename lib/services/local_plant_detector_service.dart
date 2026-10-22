@@ -11,19 +11,28 @@ import '../models/bounding_box.dart';
 import '../models/detection.dart';
 import '../models/prediction_response.dart';
 
+/// Ngưỡng tin cậy đã hiệu chỉnh cho từng loài cây
+/// - Ngưỡng thấp hơn = nhạy hơn nhưng vẫn đảm bảo chính xác
+/// - Ngưỡng cao hơn cho các loài hay bị nhầm (Chanh vs Xoài)
 const Map<int, double> kCalibratedClassThresholds = {
-  0: 0.45,  // Acacia
-  1: 0.50,  // Bamboo-shoots
-  2: 0.40,  // Banana-plant
-  3: 0.40,  // Banyan-Tree
-  4: 0.40,  // Coconut-tree
-  5: 0.50,  // Mango-Tree
-  6: 0.40,  // Neem-Tree
-  7: 0.40,  // Palm-tree
-  8: 0.45,  // Papaya-Tree
-  9: 0.45,  // Pine
-  10: 0.55, // lemon tree
-  11: 0.50, // peepal tree
+  0: 0.38,  // Acacia (Cây Keo)
+  1: 0.35,  // Bamboo-shoots (Măng Tre)
+  2: 0.35,  // Banana-plant (Cây Chuối)
+  3: 0.38,  // Banyan-Tree (Cây Đa)
+  4: 0.35,  // Coconut-tree (Cây Dừa)
+  5: 0.35,  // Mango-Tree (Cây Xoài)
+  6: 0.38,  // Neem-Tree (Cây Sầu Đâu)
+  7: 0.30,  // Palm-tree (Cây Cọ) - Ngưỡng thấp vì hay bị bỏ sót
+  8: 0.40,  // Papaya-Tree (Cây Đu Đủ)
+  9: 0.38,  // Pine (Cây Thông)
+  10: 0.55, // lemon tree (Cây Chanh) - Ngưỡng CAO vì hay nhận nhầm từ Xoài
+  11: 0.38, // peepal tree (Cây Bồ Đề)
+};
+
+/// Các cặp loài thường bị model nhầm lẫn
+/// Key = loài bị nhầm (class ID), Value = loài thực tế (class ID)
+const Map<int, int> kConfusionPairs = {
+  10: 5,   // Chanh (10) thường bị nhầm từ Xoài (5)
 };
 
 const Map<int, String> kClassNames = {
@@ -55,6 +64,16 @@ const Map<int, String> kPlantViNames = {
   10: 'Cây Chanh',
   11: 'Cây Bồ Đề',
 };
+
+class PlantFeatureResult {
+  const PlantFeatureResult({
+    required this.greenRatio,
+    required this.plantRatio,
+  });
+
+  final double greenRatio;
+  final double plantRatio;
+}
 
 class _LetterboxResult {
   const _LetterboxResult({
@@ -127,7 +146,12 @@ class LocalPlantDetectorService {
       throw const FormatException('Không thể giải mã tệp hình ảnh.');
     }
 
-    final overallPlantRatio = _calculatePlantFeatures(decodedImage);
+    // 1. Phân tích đặc trưng thực vật toàn ảnh
+    final overallFeatures = calculatePlantFeatures(decodedImage);
+    final overallGreenRatio = overallFeatures.greenRatio;
+    final overallPlantRatio = overallFeatures.plantRatio;
+
+    // 2. Tiền xử lý Letterbox và chạy ONNX
     final letterbox = _preprocessLetterbox(decodedImage);
 
     final inputOrtValue = OrtValueTensor.createTensorWithDataList(
@@ -136,9 +160,13 @@ class LocalPlantDetectorService {
     );
 
     final runOptions = OrtRunOptions();
-    final outputs = _session!.run(runOptions, {'images': inputOrtValue});
-    inputOrtValue.release();
-    runOptions.release();
+    List<OrtValue?> outputs;
+    try {
+      outputs = _session!.run(runOptions, {'images': inputOrtValue});
+    } finally {
+      inputOrtValue.release();
+      runOptions.release();
+    }
 
     if (outputs.isEmpty || outputs[0] == null) {
       throw const FormatException('Không nhận được dữ liệu tensor từ mô hình ONNX.');
@@ -157,20 +185,95 @@ class LocalPlantDetectorService {
       classScoreLists.add(batch0[4 + c] as List);
     }
 
-    final List<Detection> rawCandidates = [];
+    // ================================================================
+    // 3. GLOBAL CLASS VOTING - Phân tích tổng thể toàn bộ 8400 anchor
+    //    Mỗi anchor bỏ phiếu cho class có điểm cao nhất.
+    //    Số lượng phiếu và tổng điểm giúp xác định loài cây THỰC SỰ
+    //    chiếm ưu thế trong ảnh, giải quyết nhầm lẫn Xoài↔Chanh, Cọ↔Dừa
+    // ================================================================
+    final List<double> classTotalScore = List.filled(12, 0.0);
+    final List<int> classVoteCount = List.filled(12, 0);
     const int numAnchors = 8400;
+
+    for (int i = 0; i < numAnchors; i++) {
+      int winnerClass = -1;
+      double winnerScore = 0.15; // Ngưỡng tối thiểu để bỏ phiếu
+      for (int c = 0; c < 12; c++) {
+        final score = (classScoreLists[c][i] as num).toDouble();
+        if (score > winnerScore) {
+          winnerScore = score;
+          winnerClass = c;
+        }
+      }
+      if (winnerClass >= 0) {
+        classTotalScore[winnerClass] += winnerScore;
+        classVoteCount[winnerClass]++;
+      }
+    }
+
+    // Tìm loài chiếm ưu thế (dominant class)
+    int dominantClass = -1;
+    double dominantScore = 0.0;
+    int dominantVotes = 0;
+    for (int c = 0; c < 12; c++) {
+      if (classTotalScore[c] > dominantScore) {
+        dominantScore = classTotalScore[c];
+        dominantVotes = classVoteCount[c];
+        dominantClass = c;
+      }
+    }
+
+    debugPrint('[PlantDetector] Global Voting: dominant=$dominantClass '
+        'score=${dominantScore.toStringAsFixed(2)} votes=$dominantVotes');
+    for (int c = 0; c < 12; c++) {
+      if (classVoteCount[c] > 0) {
+        debugPrint('  Class $c (${kClassNames[c]}): votes=${classVoteCount[c]} '
+            'totalScore=${classTotalScore[c].toStringAsFixed(2)}');
+      }
+    }
+
+    // ================================================================
+    // 4. Thu thập ứng viên Bounding Box
+    // ================================================================
+    final List<Detection> rawCandidates = [];
 
     for (int i = 0; i < numAnchors; i++) {
       int bestClassId = 0;
       double maxScore = -1.0;
+      double secondBestScore = -1.0;
+      int secondBestClassId = -1;
 
       for (int c = 0; c < 12; c++) {
         final score = (classScoreLists[c][i] as num).toDouble();
         if (score > maxScore) {
+          secondBestScore = maxScore;
+          secondBestClassId = bestClassId;
           maxScore = score;
           bestClassId = c;
+        } else if (score > secondBestScore) {
+          secondBestScore = score;
+          secondBestClassId = c;
         }
       }
+
+      if (maxScore < 0.20) continue;
+
+      // ============================================================
+      // CHỐNG NHẦM LẪN TẠI TỪNG ANCHOR:
+      // Nếu model cho Chanh (10) điểm cao nhất, nhưng:
+      //   - Global Voting nói Xoài (5) chiếm ưu thế
+      //   - Và Xoài là second-best class tại anchor này
+      //   - Và chênh lệch điểm nhỏ (< 0.15)
+      // → Chuyển anchor này từ Chanh sang Xoài
+      // ============================================================
+      if (bestClassId == 10 && dominantClass == 5 &&
+          secondBestClassId == 5 && (maxScore - secondBestScore) < 0.15) {
+        bestClassId = 5;
+        maxScore = secondBestScore; // Dùng điểm Xoài gốc
+      }
+
+      // Tương tự: Nếu Dừa (4) chiếm ưu thế nhưng anchor nói Cọ (7) hoặc ngược lại
+      // → KHÔNG chuyển, vì Dừa và Cọ khác nhau rõ ràng
 
       if (maxScore < 0.20) continue;
 
@@ -186,16 +289,6 @@ class LocalPlantDetectorService {
 
       if (x2 <= x1 || y2 <= y1) continue;
 
-      final boxPlantRatio = _calculatePlantFeatures(decodedImage, [x1, y1, x2, y2]);
-
-      final isLemonTree = (bestClassId == 10);
-      if (isLemonTree && boxPlantRatio < 0.035 && overallPlantRatio < 0.035) {
-        continue;
-      }
-      if (overallPlantRatio < 0.02 && maxScore < 0.60) {
-        continue;
-      }
-
       final className = kClassNames[bestClassId] ?? 'Class $bestClassId';
       final nameVi = kPlantViNames[bestClassId];
 
@@ -204,7 +297,7 @@ class LocalPlantDetectorService {
           classId: bestClassId,
           className: className,
           nameVi: nameVi,
-          confidence: double.parse(maxScore.toStringAsFixed(6)),
+          confidence: double.parse(maxScore.toStringAsFixed(4)),
           bbox: BoundingBox(
             x1: double.parse(x1.toStringAsFixed(2)),
             y1: double.parse(y1.toStringAsFixed(2)),
@@ -217,22 +310,59 @@ class LocalPlantDetectorService {
 
     outputs[0]!.release();
 
-    final nmsCandidates = _applyNMS(rawCandidates, iou);
+    // ================================================================
+    // 5. Cross-Class NMS: Loại bỏ box trùng lặp giữa các loài
+    // ================================================================
+    final nmsCandidates = _applyCrossClassNMS(rawCandidates, iou);
 
+    // ================================================================
+    // 6. Xác nhận các phát hiện đạt ngưỡng tin cậy hiệu chỉnh
+    // ================================================================
     final List<Detection> confirmedDetections = [];
-    final List<Detection> uncertainDetections = [];
 
     for (final det in nmsCandidates) {
-      final classTh = kCalibratedClassThresholds[det.classId] ?? 0.45;
+      final classTh = kCalibratedClassThresholds[det.classId] ?? 0.38;
+      // effectiveTh = ngưỡng class-specific, không thấp hơn confidence param
       final effectiveTh = math.max(classTh, confidence);
 
       if (det.confidence >= effectiveTh) {
         confirmedDetections.add(det);
-      } else if (det.confidence >= 0.25) {
-        uncertainDetections.add(det);
       }
     }
 
+    // ================================================================
+    // 7. FALLBACK RESCUE: Nếu không có box nào đạt ngưỡng nhưng
+    //    Global Voting cho thấy có loài cây rõ ràng chiếm ưu thế
+    //    (ít nhất 5 anchor bỏ phiếu, tổng điểm >= 1.5)
+    //    → Tạo detection toàn ảnh cho loài đó
+    // ================================================================
+    if (confirmedDetections.isEmpty && dominantClass >= 0 &&
+        dominantVotes >= 5 && dominantScore >= 1.5) {
+      final rescuedConfidence = math.min(0.85, dominantScore / (dominantVotes * 0.5));
+
+      if (rescuedConfidence >= 0.30) {
+        final rescuedDet = Detection(
+          classId: dominantClass,
+          className: kClassNames[dominantClass]!,
+          nameVi: kPlantViNames[dominantClass],
+          confidence: double.parse(rescuedConfidence.toStringAsFixed(4)),
+          bbox: BoundingBox(
+            x1: (letterbox.origWidth * 0.05).roundToDouble(),
+            y1: (letterbox.origHeight * 0.05).roundToDouble(),
+            x2: (letterbox.origWidth * 0.95).roundToDouble(),
+            y2: (letterbox.origHeight * 0.95).roundToDouble(),
+          ),
+        );
+        confirmedDetections.add(rescuedDet);
+
+        debugPrint('[PlantDetector] Rescued via Global Voting: '
+            '${kClassNames[dominantClass]} conf=${rescuedConfidence.toStringAsFixed(3)}');
+      }
+    }
+
+    // ================================================================
+    // 8. Phân loại kết quả cuối cùng
+    // ================================================================
     if (confirmedDetections.isNotEmpty) {
       return PredictionResponse(
         success: true,
@@ -243,25 +373,11 @@ class LocalPlantDetectorService {
         isPlant: true,
         message: null,
       );
-    } else if (uncertainDetections.isNotEmpty) {
-      final bestCand = uncertainDetections.reduce((a, b) => a.confidence > b.confidence ? a : b);
-      final viName = bestCand.nameVi ?? bestCand.className;
-      final pct = (bestCand.confidence * 100).toStringAsFixed(1);
-
-      return PredictionResponse(
-        success: true,
-        status: 'uncertain',
-        imageWidth: letterbox.origWidth,
-        imageHeight: letterbox.origHeight,
-        detections: uncertainDetections,
-        isPlant: true,
-        message: "AI phát hiện dấu hiệu tương tự '$viName' ($pct%) nhưng độ tự tin chưa đủ cao. Hãy thử chụp ảnh rõ hơn hoặc đưa camera gần cây hơn.",
-      );
     } else {
-      final isPlant = overallPlantRatio >= 0.03;
-      final String msg = !isPlant
-          ? 'Ảnh không phải là thực vật hoặc không tìm thấy đặc điểm thực vật. Vui lòng chụp rõ cây xanh, hoa lá hoặc thân cây.'
-          : 'Loại cây này chưa nằm trong danh sách 12 loài cây mà AI được huấn luyện. Vui lòng thử lại với các loài được hỗ trợ.';
+      final isRealPlant = overallGreenRatio >= 0.030 || overallPlantRatio >= 0.060;
+      final String msg = !isRealPlant
+          ? 'Ảnh không tìm thấy đặc tính thực vật rõ nét. Vui lòng hướng camera gần vào thân, cành lá hoặc tán cây.'
+          : 'Chưa nhận diện rõ loài trong 12 loài cây. Vui lòng chụp rõ tán lá hoặc chụp từ khoảng cách 1-3 mét.';
 
       return PredictionResponse(
         success: true,
@@ -269,13 +385,14 @@ class LocalPlantDetectorService {
         imageWidth: letterbox.origWidth,
         imageHeight: letterbox.origHeight,
         detections: const [],
-        isPlant: isPlant,
+        isPlant: isRealPlant,
         message: msg,
       );
     }
   }
 
-  double _calculatePlantFeatures(img.Image image, [List<double>? boxCoords]) {
+  /// Tính toán đặc tính thực vật (xanh lá, thân cây, xơ vỏ cọ/dừa, hoa quả)
+  PlantFeatureResult calculatePlantFeatures(img.Image image, [List<double>? boxCoords]) {
     try {
       int startX = 0;
       int startY = 0;
@@ -287,11 +404,15 @@ class LocalPlantDetectorService {
         startY = math.max(0, boxCoords[1].toInt());
         endX = math.min(image.width, boxCoords[2].toInt());
         endY = math.min(image.height, boxCoords[3].toInt());
-        if (endX <= startX || endY <= startY) return 0.0;
+        if (endX <= startX || endY <= startY) {
+          return const PlantFeatureResult(greenRatio: 0.0, plantRatio: 0.0);
+        }
       }
 
+      int greenCount = 0;
       int plantCount = 0;
       int totalSampled = 0;
+
       final step = math.max(1, math.min((endX - startX) ~/ 60, (endY - startY) ~/ 60));
 
       for (int y = startY; y < endY; y += step) {
@@ -301,20 +422,41 @@ class LocalPlantDetectorService {
           final g = pixel.g.toDouble();
           final b = pixel.b.toDouble();
 
-          final bool isGreen = (g > r * 0.90) && (g > b * 1.05) && (g > 35);
-          final bool isBark = (r > g) && (g > b) && (r > 40) && (r < 180) && ((r - b) > 18) && ((g - b) > 8);
+          // 1. Sắc xanh thực vật (lá xanh tươi, lá non, lá đậm, lá cọ, lá dừa)
+          final bool isFoliageGreen = (g > 30) && (g > r * 0.98) && (g > b * 1.05);
+          final bool isLimeGreen = (g > 35) && (r > 30) && (g >= r * 0.88) && (g > b * 1.15);
+          final bool isGreen = isFoliageGreen || isLimeGreen;
 
-          if (isGreen || isBark) {
+          // 2. Thân cây, vỏ cây xù xì, vỏ thân cây cọ xám/nâu, xơ dừa
+          //    Điều kiện (r-g) <= 45 loại bỏ da người, gỗ bàn mịn
+          final bool isBark = (r > g) && (g > b) &&
+              (r >= 35) && (r <= 165) &&
+              ((r - b) >= 15) && ((g - b) >= 5) &&
+              ((r - g) <= 45);
+
+          // 3. Trái cây chín / hoa quả
+          final bool isFruit = (r > 110) && (g > 85) && (b < 110) && (r > b * 1.25);
+
+          if (isGreen) {
+            greenCount++;
+            plantCount++;
+          } else if (isBark || isFruit) {
             plantCount++;
           }
           totalSampled++;
         }
       }
 
-      if (totalSampled == 0) return 0.0;
-      return plantCount / totalSampled;
+      if (totalSampled == 0) {
+        return const PlantFeatureResult(greenRatio: 0.0, plantRatio: 0.0);
+      }
+
+      return PlantFeatureResult(
+        greenRatio: greenCount / totalSampled,
+        plantRatio: plantCount / totalSampled,
+      );
     } catch (_) {
-      return 0.5;
+      return const PlantFeatureResult(greenRatio: 0.0, plantRatio: 0.0);
     }
   }
 
@@ -374,7 +516,8 @@ class LocalPlantDetectorService {
     return interArea / unionArea;
   }
 
-  List<Detection> _applyNMS(List<Detection> detections, double iouThreshold) {
+  /// Cross-Class NMS: Loại bỏ box đè lên nhau giữa các loài khác nhau
+  List<Detection> _applyCrossClassNMS(List<Detection> detections, double iouThreshold) {
     if (detections.length <= 1) return detections;
     final sorted = List<Detection>.from(detections)
       ..sort((a, b) => b.confidence.compareTo(a.confidence));
@@ -383,9 +526,17 @@ class LocalPlantDetectorService {
     while (sorted.isNotEmpty) {
       final best = sorted.removeAt(0);
       result.add(best);
-      sorted.removeWhere((item) =>
-          item.classId == best.classId &&
-          _calculateIoU(item.bbox, best.bbox) > iouThreshold);
+
+      sorted.removeWhere((item) {
+        final iouVal = _calculateIoU(item.bbox, best.bbox);
+        if (iouVal <= iouThreshold) return false;
+
+        // Cùng class → loại bỏ trùng lặp
+        if (item.classId == best.classId) return true;
+
+        // Khác class nhưng IoU > 0.55 → giữ loài có điểm cao hơn (đã sort)
+        return iouVal > 0.55;
+      });
     }
     return result;
   }

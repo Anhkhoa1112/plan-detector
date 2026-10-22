@@ -228,7 +228,7 @@ class _BoundingBoxPainter extends CustomPainter {
     Color color,
     bool isSelected,
   ) {
-    final labelText = '#$index ${det.displayName} ${det.confidencePercent}';
+    final labelText = det.displayName;
     final textSpan = TextSpan(
       text: labelText,
       style: const TextStyle(

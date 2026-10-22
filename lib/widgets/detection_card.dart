@@ -6,7 +6,6 @@ import 'glass_card.dart';
 class DetectionCard extends StatelessWidget {
   const DetectionCard({
     super.key,
-    required this.index,
     required this.detection,
     this.color = AppColors.primaryEmerald,
     this.isSelected = false,
@@ -14,7 +13,6 @@ class DetectionCard extends StatelessWidget {
     this.onTap,
   });
 
-  final int index;
   final Detection detection;
   final Color color;
   final bool isSelected;
@@ -23,13 +21,11 @@ class DetectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final confPct = (detection.confidence * 100).toStringAsFixed(1);
-    final confColor = AppColors.forConfidence(detection.confidence);
     final hasViName = detection.nameVi != null && detection.nameVi!.trim().isNotEmpty;
+    final plantName = hasViName ? detection.nameVi! : detection.className;
 
     final textMain = isDarkMode ? AppColors.textMainDark : AppColors.textMainLight;
     final textSub = isDarkMode ? AppColors.textSubDark : AppColors.textSubLight;
-    final textMuted = isDarkMode ? AppColors.textMutedDark : AppColors.textMutedLight;
 
     return GlassCard(
       onTap: onTap,
@@ -37,49 +33,44 @@ class DetectionCard extends StatelessWidget {
       isDarkMode: isDarkMode,
       isElevated: isSelected,
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       borderColor: isSelected ? color : null,
       borderWidth: isSelected ? 2.0 : 1.0,
       glowColor: isSelected ? color.withValues(alpha: 0.35) : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Row 1: Plant Icon & Plant Name
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Index Badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.20),
-                  borderRadius: BorderRadius.circular(10),
+                  color: color.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                    color: color.withValues(alpha: 0.6),
+                    color: color.withValues(alpha: 0.45),
                     width: 1.2,
                   ),
                 ),
-                child: Text(
-                  '#$index',
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                    letterSpacing: 0.5,
-                  ),
+                child: Icon(
+                  Icons.eco_rounded,
+                  color: color,
+                  size: 22,
                 ),
               ),
-              const SizedBox(width: 12),
-              // Plant Titles
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      hasViName ? detection.nameVi! : detection.className,
+                      'Tên cây: $plantName',
                       style: TextStyle(
                         color: textMain,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
                         letterSpacing: -0.3,
                       ),
                     ),
@@ -98,169 +89,60 @@ class DetectionCard extends StatelessWidget {
                   ],
                 ),
               ),
-              // Confidence Tag
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                decoration: BoxDecoration(
-                  color: confColor.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: confColor.withValues(alpha: 0.55),
-                    width: 1.2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: confColor.withValues(alpha: 0.20),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.verified_rounded,
-                      size: 14,
-                      color: confColor,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      '$confPct%',
-                      style: TextStyle(
-                        color: confColor,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          // Confidence Progress Bar
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Độ tin cậy AI',
-                    style: TextStyle(
-                      color: textMuted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  Text(
-                    _confidenceLabel(detection.confidence),
-                    style: TextStyle(
-                      color: confColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: Stack(
-                  children: [
-                    Container(
-                      height: 7,
-                      color: isDarkMode
-                          ? Colors.white.withValues(alpha: 0.08)
-                          : Colors.black.withValues(alpha: 0.08),
-                    ),
-                    FractionallySizedBox(
-                      widthFactor: detection.confidence.clamp(0.0, 1.0),
-                      child: Container(
-                        height: 7,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              confColor.withValues(alpha: 0.8),
-                              confColor,
-                            ],
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: confColor.withValues(alpha: 0.5),
-                              blurRadius: 6,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 12),
-          // Metadata footer
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: isDarkMode
-                      ? Colors.white.withValues(alpha: 0.05)
-                      : Colors.black.withValues(alpha: 0.04),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
+
+          // Row 2: Đặc điểm nhận dạng / mô tả
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isDarkMode
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.black.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDarkMode
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.black.withValues(alpha: 0.06),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
                     Icon(
-                      Icons.crop_free_rounded,
-                      size: 13,
-                      color: textSub,
+                      Icons.info_outline_rounded,
+                      size: 14,
+                      color: color,
                     ),
-                    const SizedBox(width: 5),
+                    const SizedBox(width: 6),
                     Text(
-                      '${detection.bbox.width.toInt()} × ${detection.bbox.height.toInt()} px',
+                      'Đặc điểm:',
                       style: TextStyle(
-                        color: textSub,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
+                        color: textMain,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: isDarkMode
-                      ? Colors.white.withValues(alpha: 0.05)
-                      : Colors.black.withValues(alpha: 0.04),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  'Class ID: ${detection.classId}',
+                const SizedBox(height: 6),
+                Text(
+                  detection.description,
                   style: TextStyle(
                     color: textSub,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 13,
+                    height: 1.4,
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
     );
-  }
-
-  String _confidenceLabel(double conf) {
-    if (conf >= 0.85) return 'Rất cao';
-    if (conf >= 0.70) return 'Độ tin cậy tốt';
-    if (conf >= 0.40) return 'Trung bình';
-    return 'Cần xác minh thêm';
   }
 }

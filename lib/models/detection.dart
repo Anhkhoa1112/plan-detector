@@ -15,6 +15,26 @@ class Detection {
   final double confidence;
   final BoundingBox bbox;
 
+  static const Map<String, String> plantDescriptions = {
+    'Acacia': 'Lá hình lưỡi liềm hoặc lá kép lông chim nhỏ, hoa bông vàng tươi đặc trưng.',
+    'Bamboo-shoots': 'Thân đốt tròn rỗng màu xanh hoặc vàng, thường mọc thành bụi dày.',
+    'Banana-plant': 'Thân giả mọng nước, phiến lá to dài hình bầu dục, có buồng hoa hoặc quả chuối.',
+    'Banyan-Tree': 'Tán lá xòe rộng sum suê, rễ phụ buông rủ từ các cành lớn xuống đất.',
+    'Coconut-tree': 'Thân đơn độc thẳng tắp không cành, lá xẻ dài tập trung ở ngọn, có buồng dừa.',
+    'Mango-Tree': 'Tán tròn sum suê, lá non màu tía đỏ sau chuyển xanh đậm dai bóng, mép lá gợn sóng.',
+    'Neem-Tree': 'Lá kép lông chim lẻ, mép lá có răng cưa nhọn rõ, thân gỗ tỏa cành đều.',
+    'Palm-tree': 'Thân tròn đơn độc xù xì, lá xòe tròn hình quạt hoặc lông chim xẻ tán.',
+    'Papaya-Tree': 'Thân mềm có sẹo cuống lá, lá xẻ thùy chân vịt sâu 7-9 thùy, quả bám quanh thân.',
+    'Pine': 'Lá hình kim xanh quanh năm mọc thành chùm 2-3 lá, quả nón hóa gỗ đặc trưng.',
+    'lemon tree': 'Cây bụi nhỏ thân gỗ, cành có gai nhọn, lá tỏa mùi thơm tinh dầu, quả tròn mọng.',
+    'peepal tree': 'Lá hình trái tim bóng mịn với chóp lá kéo dài thành đuôi nhọn đặc trưng.',
+  };
+
+  String get description =>
+      plantDescriptions[className] ??
+      plantDescriptions[className.toLowerCase()] ??
+      'Thực vật được nhận diện bởi mô hình AI.';
+
   String get confidencePercent => '${(confidence * 100).toStringAsFixed(1)}%';
 
   String get displayName =>
